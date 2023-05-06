@@ -17,18 +17,12 @@ TOPIC_TO_ID = {"Economics": 0, "Other": 1}
 
 class SentimentDataset(Dataset):
 
-    def __init__(self, file_path, train=True, split=0.95):
+    def __init__(self, file_path):
         data = pd.read_csv(file_path)
         x = data['Headlines'].values
         y = data['Sentiment'].map(SENTIMENT_TO_ID).values
-
-        num_rows = round(split * data.shape[0])
-        if train:
-            self.x = x[:num_rows]
-            self.y = torch.from_numpy(y)[:num_rows]
-        else:
-            self.x = x[num_rows:]
-            self.y = torch.from_numpy(y)[num_rows:]
+        self.x = x
+        self.y = torch.from_numpy(y)
 
     def __len__(self):
         return self.y.shape[0]
@@ -39,18 +33,12 @@ class SentimentDataset(Dataset):
 
 class TopicDataset(Dataset):
 
-    def __init__(self, file_path, train=True, split=0.95):
+    def __init__(self, file_path):
         data = pd.read_csv(file_path)
         x = data['Headlines'].values
         y = data['Topic'].map(TOPIC_TO_ID).values
-
-        num_rows = round(split * data.shape[0])
-        if train:
-            self.x = x[:num_rows]
-            self.y = torch.from_numpy(y)[:num_rows]
-        else:
-            self.x = x[num_rows:]
-            self.y = torch.from_numpy(y)[num_rows:]
+        self.x = x
+        self.y = torch.from_numpy(y)
 
     def __len__(self):
         return self.y.shape[0]

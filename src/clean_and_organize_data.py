@@ -1,8 +1,13 @@
 import os
+import random
+from multiprocessing import Pool, cpu_count
+
 import numpy as np
 import pandas as pd
-import random
 from textattack.augmentation import WordNetAugmenter, EmbeddingAugmenter, EasyDataAugmenter
+
+TOPICS = ['Economy', 'Stock Market', 'Company', 'Economics']
+MANUAL_TOPICS = ['BUSINESS', 'MONEY', 'TECH', 'TECHNOLOGY', 'ECONOMY', 'ECONOMICS']
 
 
 def fix_sentiment_train_data():
@@ -24,12 +29,13 @@ def fix_sentiment_train_data():
     df = pd.concat(dfs, ignore_index=True)
     df['Headlines'] = _clean_text(df['Headlines'])
     df = df.drop_duplicates(subset='Headlines')
-
-    df = augment_headlines(df, num_samples=len(df))
-
     df = df.sample(frac=1)
-    df.reset_index(drop=True, inplace=True)
-    df.to_csv('data/fixed-data/sentiment-train.csv', index=False)
+
+    train, cv = _train_test_split(df, train_size=0.975)
+    train = _augment_headlines(train, num_samples=len(train), label_column='Sentiment')
+
+    train.to_csv('data/fixed-data/sentiment-train.csv', index=False)
+    cv.to_csv('data/fixed-data/sentiment-val.csv', index=False)
 
 
 def fix_sentiment_test_data():
@@ -48,16 +54,18 @@ def fix_sentiment_test_data():
 
 
 def fix_topic_data():
-    topic_files = ['News_Category_Dataset_v3.csv', 'labelled_newscatcher_dataset.csv',
-                   'ReutersNews106521.csv']
+    topic_files = ['ag-news-classification-dataset.csv', 'headlines-5000.csv',
+                   'labelled_newscatcher_dataset.csv', 'News_Category_Dataset_v3.csv',
+                   'title_and_headline_sentiment_prediction.csv', 'twitter-financial-news.csv']
     dfs = []
     for f in topic_files:
         df = pd.read_csv('data/classified-data/' + f)
+        df['Manual Topic'] = df['Manual Topic'].str.upper()
         if "Manual Topic" not in df.columns:
             df["Manual Topic"] = "BUSINESS"
         mask = (
-            df['Topic'].isin(['Economy', 'Stock Market', 'Company', 'Economics']) &
-            df['Manual Topic'].isin(['BUSINESS', 'MONEY', 'TECH', 'TECHNOLOGY'])
+            df['Topic'].isin(TOPICS) &
+            df['Manual Topic'].isin(MANUAL_TOPICS)
         )
         df['Topic'] = np.where(mask, 'Economics', 'Other')
         df = df[['Headlines', 'Topic']]
@@ -66,8 +74,14 @@ def fix_topic_data():
     df = pd.concat(dfs, ignore_index=True)
     df['Headlines'] = _clean_text(df['Headlines'])
     df = df.drop_duplicates(subset='Headlines')
-    train, test = _train_test_split(df)
+    df = df.sample(frac=1)
+
+    train, test = _train_test_split(df, train_size=0.975)
+    train, cv = _train_test_split(train, train_size=0.975)
+    train = _augment_headlines(train, len(train), label_column='Topic')
+
     train.to_csv('data/fixed-data/topic-train.csv', index=False)
+    cv.to_csv('data/fixed-data/topic-val.csv', index=False)
     test.to_csv('data/fixed-data/topic-test.csv', index=False)
 
 
@@ -80,33 +94,42 @@ def _train_test_split(df, train_size=0.975):
 def _filter_topic(df):
     """Filter out non-economics topics."""
     if 'Manual Topic' in df.columns:
+        df['Manual Topic'] = df['Manual Topic'].str.upper()
         mask = (
-            df['Topic'].isin(['Economy', 'Stock Market', 'Company', 'Economics']) &
-            df['Manual Topic'].isin(['BUSINESS', 'MONEY', 'TECH', 'TECHNOLOGY'])
+            df['Topic'].isin(TOPICS) &
+            df['Manual Topic'].isin(MANUAL_TOPICS)
         )
     else:
-        mask = df['Topic'].isin(['Economy', 'Stock Market', 'Company', 'Economics'])
+        mask = df['Topic'].isin(TOPICS)
     df = df[mask]
     return df
 
 
 def _clean_text(headlines: pd.Series):
-    """
-    This function takes a pandas series containing text headlines as input, and performs the
-    following cleaning operations:
+    """Clean headlines function
+
+    This function takes a pandas Series containing text headlines as input and performs
+    the following cleaning operations:
 
     1. Converts all text to lowercase.
-    2. Replaces all non-alphanumeric characters except for ".", ",", "!", "?", and "-" with a space.
+    2. Replaces all non-alphanumeric characters except for ".", ",", "!", "?", and "-" with
+    a space.
     3. Replaces multiple consecutive spaces with a single space.
     4. Strips any leading or trailing whitespace from each headline.
     5. Removes the string '- analyst blog' from each headline.
 
-    Parameters:
-    headlines (pd.Series): A pandas series containing text headlines to be cleaned.
+    Parameters
+    ----------
+    headlines : pandas.Series
+        A pandas Series containing text headlines to be cleaned.
 
-    Returns:
-    pd.Series: A pandas series containing the cleaned text headlines.
+    Returns
+    -------
+    cleaned_headlines : pandas.Series
+        A pandas Series containing the cleaned text headlines.
+
     """
+    headlines = headlines.astype(str)
     headlines = headlines.str.lower()
     headlines = headlines.str.replace(r'[^a-zA-Z0-9.,?!-]', ' ', regex=True)
     headlines = headlines.str.replace(r'\s+', ' ', regex=True)
@@ -115,29 +138,65 @@ def _clean_text(headlines: pd.Series):
     return headlines
 
 
-def augment_headlines(df, num_samples):
-    augmented_sentences = []
-    augmented_labels = []
+def _augment_headlines(df, num_samples, label_column):
+    """Augment headlines.
 
+    This function takes a pandas DataFrame of headlines and their sentiment labels,
+    and returns a new DataFrame with augmented headlines. The function uses three
+    different augmentation methods to generate new headlines from the original ones.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        A DataFrame containing two columns: 'Headlines', which contains the original headlines,
+        and 'Sentiment', which contains the sentiment labels for each headline.
+    num_samples : int
+        The number of augmented samples to generate for each original headline.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        A new DataFrame containing the original headlines and the augmented headlines.
+        The DataFrame has two columns: 'Headlines', which contains the original and augmented
+        headlines, and 'Sentiment', which contains the corresponding sentiment labels.
+    """
     methods = [WordNetAugmenter(), EmbeddingAugmenter(), EasyDataAugmenter()]
 
-    for _ in range(num_samples):
-        i = random.randint(0, len(df) - 1)
-        original_sentence = df['Headlines'].iloc[i]
-        label = df['Sentiment'].iloc[i]
+    tasks = []
+    for i in range(num_samples):
+        index = i % len(df)
+        headline = df['Headlines'].iloc[index]
+        label = df[label_column].iloc[index]
+        tasks.append((headline, label, methods))
 
-        # randomly select an augmentation method
-        method_id = random.randint(0, len(methods) - 1)
-        augmenter = methods[method_id]
+    with Pool(cpu_count() // 2) as pool:
+        results = pool.map(_augment_headline, tasks)
 
-        augmented_sentence = augmenter.augment(original_sentence)
-        augmented_sentences.append(augmented_sentence[0])
-        augmented_labels.append(label)
+    augmented_sentences = []
+    augmented_labels = []
+    for result in results:
+        if result is not None:
+            augmented_sentences.append(result[0])
+            augmented_labels.append(result[1])
 
-    new_df = pd.DataFrame({'Headlines': augmented_sentences, 'Sentiment': augmented_labels})
+    new_df = pd.DataFrame({'Headlines': augmented_sentences, label_column: augmented_labels})
     df = pd.concat([df, new_df], ignore_index=True)
     df = df.drop_duplicates(subset='Headlines')
+    df = df.sample(frac=1)
     return df
+
+
+def _augment_headline(args):
+    original_sentence, label, methods = args
+    # randomly select an augmentation method
+    method_id = random.randint(0, len(methods) - 1)
+    augmenter = methods[method_id]
+    try:
+        augmented_sentence = augmenter.augment(original_sentence)
+        return (augmented_sentence[0], label)
+    except Exception as e:
+        print(e)
+        return None
 
 
 if __name__ == '__main__':
