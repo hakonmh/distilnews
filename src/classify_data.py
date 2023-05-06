@@ -4,6 +4,7 @@ Classifies the different datasets used using OpenAI's GPT-3.5 model.
 import re
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
 
 import pandas as pd
 import numpy as np
@@ -77,7 +78,7 @@ def _touch_file(file_path, cols):
 def _process_chunks(df, chunk_size):
     chunks = _split_df(df, chunk_size)
     model, tokenizer = _launch_finbert()
-    with ProcessPoolExecutor(max_workers=6) as executor:
+    with ProcessPoolExecutor(max_workers=min(cpu_count(), 6)) as executor:
         futures = {executor.submit(_process_chunk, chunk, model, tokenizer) for chunk in chunks}
         for future in as_completed(futures):
             yield future.result()
@@ -116,6 +117,28 @@ def _process_chunk(chunk, model, tokenizer):
 
 
 def _classify_headlines_finbert(headlines, model, tokenizer):
+    """Classify headlines using FinBERT function
+
+    This function uses the FinBERT model to classify the sentiment labels of news
+    headlines. The function tokenizes the input headlines using a provided tokenizer,
+    pads and truncates the sequences, and passes them through the FinBERT model to
+    generate sentiment predictions.
+
+    Parameters
+    ----------
+    headlines : list
+        A list of strings containing the news headlines to be classified.
+    model : transformers.BertForSequenceClassification
+        A pre-trained FinBERT model for sequence classification.
+    tokenizer : transformers.BertTokenizer
+        A pre-trained tokenizer for the FinBERT model.
+
+    Returns
+    -------
+    preds : pandas.Series
+        A pandas Series containing the predicted sentiment labels for the input
+        headlines.
+    """
     headlines = tokenizer(headlines, add_special_tokens=True, max_length=30,
                           padding="max_length", truncation=True, return_tensors="pt")
     headlines = headlines.to(device=device)
@@ -129,7 +152,25 @@ def _classify_headlines_finbert(headlines, model, tokenizer):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
 def _classify_headlines_gpt(headlines):
-    """Classify the topic and sentiment of news headlines using GPT-3.5"""
+    """Classify headlines using GPT-3.5 function
+
+    This function uses the GPT-3.5 model to classify the topic and sentiment of news
+    headlines. The function constructs a user prompt that includes the headlines to
+    be classified and sends it to the GPT-3.5 model for completion. The completed
+    text response is parsed to extract the topic and sentiment labels.
+
+    Parameters
+    ----------
+    headlines : list
+        A list of strings containing the news headlines to be classified.
+
+    Returns
+    -------
+    output : str
+        A string containing the completed response from the GPT-3.5 model.
+    total_tokens : int
+        An integer representing the number of tokens used to generate the response.
+"""
     user_prompt = "Classify the following headlines:"
     for idx, headline in enumerate(headlines):
         user_prompt += f"\n{idx + 1}. {headline}"
@@ -149,6 +190,24 @@ def _classify_headlines_gpt(headlines):
 
 
 def _parse_gpt_output(text):
+    """Parse GPT output
+
+    This function takes a string of text containing GPT output as input,
+    and extracts the topics and sentiment labels from the text. It then processes
+    the labels to ensure they are in the correct format.
+
+    Parameters
+    ----------
+    text : str
+        A string of text containing GPT output.
+
+    Returns
+    --------
+    topics : list
+        A list of strings representing the topics of the headlines in the GPT output.
+    sentiment : list
+        A list of strings representing the sentiment labels of the headlines in the GPT output.
+    """
     headlines = text.split("\n")
     try:
         topics = [h.split(",")[0].split(".")[1].strip() for h in headlines]
