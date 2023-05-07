@@ -43,11 +43,7 @@ def fix_sentiment_test_data():
     df = pd.read_csv('data/classified-data/aspect_based_analysis.csv')
 
     df = df[df['Topic'].isin(['Economy', 'Stock Market', 'Company', 'Economics'])]
-    # Select only rows where all 3 sentiment classifiers agree
-    mask = ((df['GPT Sentiment'] == df['FinBERT Sentiment']) &
-            (df['GPT Sentiment'] == df['Manual Sentiment']))
-    df = df[mask]
-    df.rename(columns={'GPT Sentiment': 'Sentiment'}, inplace=True)
+    df['Sentiment'] = df[['Manual Sentiment', 'GPT Sentiment', 'FinBERT Sentiment']].mode(axis=1)[0]
     df = df[['Headlines', 'Sentiment']]
     df['Headlines'] = _clean_text(df['Headlines'])
     df = df.sample(frac=1)
