@@ -102,8 +102,8 @@ class LRFinder:
         Returns:
             best_lr (float): The learning rate corresponding to the steepest loss gradient.
         """
-        best_lr_index = (np.gradient(np.array(self.history["loss"]))).argmin()
         last_idx = self._get_max_lr_idx()
+        best_lr_index = (np.gradient(np.array(self.history["loss"][:last_idx]))).argmin()
 
         # Plot the learning rate range and corresponding losses
         plt.plot(self.history["lr"][:last_idx], self.history["loss"][:last_idx])

@@ -1,12 +1,13 @@
 """
 Misc helper functions for training, storing and evaluating models.
 """
+import io
+import os
 
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
-import io
 from transformers import PreTrainedModel
 
 ID_TO_SENTIMENT = {0: "Negative", 1: "Neutral", 2: "Positive"}
@@ -48,6 +49,7 @@ class TopicDataset(Dataset):
 
 
 def save_model(model, path):
+    path = os.path.basename(path)
     buffer = io.BytesIO()
     torch.save(model.state_dict(), buffer)
     with open(path, 'wb') as f:
@@ -56,6 +58,7 @@ def save_model(model, path):
 
 
 def load_model(model, path, device):
+    path = os.path.basename(path)
     model.load_state_dict(torch.load(path))
     return model.to(device)
 

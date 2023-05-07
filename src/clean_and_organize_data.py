@@ -31,8 +31,9 @@ def fix_sentiment_train_data():
     df = df.drop_duplicates(subset='Headlines')
     df = df.sample(frac=1)
 
-    train, cv = _train_test_split(df, train_size=0.975)
-    train = _augment_headlines(train, num_samples=len(train), label_column='Sentiment')
+    train, cv = _train_test_split(df, train_size=0.95)
+    train = _augment_headlines(train, num_samples=len(train) * 0.2,
+                               label_column='Sentiment')
 
     train.to_csv('data/fixed-data/sentiment-train.csv', index=False)
     cv.to_csv('data/fixed-data/sentiment-val.csv', index=False)
@@ -78,7 +79,8 @@ def fix_topic_data():
 
     train, test = _train_test_split(df, train_size=0.975)
     train, cv = _train_test_split(train, train_size=0.975)
-    train = _augment_headlines(train, len(train), label_column='Topic')
+    train = _augment_headlines(train, num_samples=len(train) * 0.2,
+                               label_column='Topic')
 
     train.to_csv('data/fixed-data/topic-train.csv', index=False)
     cv.to_csv('data/fixed-data/topic-val.csv', index=False)
@@ -149,22 +151,25 @@ def _augment_headlines(df, num_samples, label_column):
     ----------
     df : pandas.DataFrame
         A DataFrame containing two columns: 'Headlines', which contains the original headlines,
-        and 'Sentiment', which contains the sentiment labels for each headline.
+        and label_column, which contains the labels for each headline.
     num_samples : int
         The number of augmented samples to generate for each original headline.
+    label_column : str
+        The name of the column in df that contains the labels for each headline.
 
     Returns
     -------
     df : pandas.DataFrame
         A new DataFrame containing the original headlines and the augmented headlines.
         The DataFrame has two columns: 'Headlines', which contains the original and augmented
-        headlines, and 'Sentiment', which contains the corresponding sentiment labels.
+        headlines, and label_column, which contains the corresponding labels.
     """
+    num_samples = int(num_samples)
     methods = [WordNetAugmenter(), EmbeddingAugmenter(), EasyDataAugmenter()]
 
     tasks = []
-    for i in range(num_samples):
-        index = i % len(df)
+    for _ in range(num_samples):
+        index = random.randint(0, len(df) - 1)
         headline = df['Headlines'].iloc[index]
         label = df[label_column].iloc[index]
         tasks.append((headline, label, methods))
@@ -181,8 +186,8 @@ def _augment_headlines(df, num_samples, label_column):
 
     new_df = pd.DataFrame({'Headlines': augmented_sentences, label_column: augmented_labels})
     df = pd.concat([df, new_df], ignore_index=True)
-    df = df.drop_duplicates(subset='Headlines')
     df = df.sample(frac=1)
+    df = df.drop_duplicates(subset='Headlines')
     return df
 
 
@@ -202,6 +207,6 @@ def _augment_headline(args):
 if __name__ == '__main__':
     if not os.path.exists('data/fixed-data'):
         os.makedirs('data/fixed-data')
-    fix_topic_data()
     fix_sentiment_train_data()
     fix_sentiment_test_data()
+    fix_topic_data()
