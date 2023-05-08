@@ -58,7 +58,6 @@ def save_model(model, path):
 
 
 def load_model(model, path, device):
-    path = os.path.basename(path)
     model.load_state_dict(torch.load(path))
     return model.to(device)
 
