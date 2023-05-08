@@ -2,3 +2,10 @@ models
 runs
 data
 .safurai
+.git
+__pycache__
+.vscode
+*.egg-info
+*.code-workspace
+*.lprof
+*.pyc
