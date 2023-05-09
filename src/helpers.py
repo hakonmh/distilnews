@@ -12,8 +12,8 @@ from transformers import PreTrainedModel
 
 ID_TO_SENTIMENT = {0: "Negative", 1: "Neutral", 2: "Positive"}
 SENTIMENT_TO_ID = {"Negative": 0, "Neutral": 1, "Positive": 2}
-ID_TO_TOPIC = {0: "Economics", 1: "Other"}
-TOPIC_TO_ID = {"Economics": 0, "Other": 1}
+ID_TO_TOPIC = {0: "Other", 1: "Economics"}
+TOPIC_TO_ID = {"Other": 0, "Economics": 1}
 
 
 class SentimentDataset(Dataset):
