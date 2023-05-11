@@ -1,5 +1,5 @@
 """
-Classifies the different datasets used using OpenAI's GPT-3.5 model.
+Classifies the different datasets used using GPT-3.5 and a huggingface transformer.
 """
 import re
 import os
@@ -15,25 +15,43 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from _pipelines import topic_pipelines, sentiment_pipelines
 
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+device = torch.device("cpu")
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
-SYSTEM_PROMPT = """You are a world-class news headline topic and sentiment classifier \
-for a financial hedge fund. Your job is to classify news headlines based on:
-- Topic (Economics or Other).
-- Bullish/Bearish Sentiment (Positive, Neutral, or Negative) as it relates to the future \
-prospects of the economy.
+SYSTEM_PROMPT = """You are a sophisticated AI model trained to classify news headlines \
+for a financial hedge fund.
 
-Your answer should be in the following format:
-num. Topic, Sentiment
+Your main task is to categorize each headline based on two criteria:
+1. The primary subject matter: Is it predominantly about Finance/Economics or \
+another unrelated subject? Respond with 'Economics' or 'Other'.
+    - Economic headlines generally cover topics such as financial markets, business, \
+financial assets, trade, employment, GDP, inflation, or fiscal and monetary policy.
+    - Non-economic headlines might include sports, entertainment, politics, science, \
+weather, health, or other unrelated news events.
+2. The overall sentiment conveyed: Does the headline convey a Positive, Neutral, or \
+Negative sentiment with regard to the current state or potential future impact on \
+the economy or the asset described?
+    - Positive sentiment headlines suggest growth, improvement, or stability in \
+economic conditions.
+    - Neutral sentiment headlines do not clearly indicate a positive or negative \
+impact on the economy.
+    - Negative sentiment headlines imply economic decline, uncertainty, or \
+unfavorable conditions.
 
-For example:
-1. Economics, Positive
-2. Other, Neutral
+Your response should follow this format: 'Number. Topic, Sentiment'.
+
+Here are some examples to guide you:
+1. For 'Economic growth expected to surge this year', respond with '1. Economics, Positive'
+2. For 'Wenger attacks Madrid for transfer rule-bending', respond with '2. Other, Negative'
+3. For 'Is the improved economy really making us happier?', respond with '3. Economics, Neutral'
+4. For 'Thomas Edison Voted Most Iconic Inventor In U.S. History', respond with '4. Other, Positive'
+5. For 'Major tech company under federal investigation', respond with '5. Economics, Negative'
+6. For 'The transaction doubles Tecnomens workforse, and adds a fourth to their net sales.', \
+respond with '6. Economics, Positive'
 """
 
 
-def process_data_pipeline(pipeline, file_path):
+def process_data_pipeline(pipeline, file_path, errors='raise'):
     """Process data pipeline function
 
     This function takes a data processing pipeline and a file path as input,
@@ -49,36 +67,43 @@ def process_data_pipeline(pipeline, file_path):
         int: The total number of tokens processed.
     """
     file_name = os.path.basename(file_path)
-    file_name = re.sub(r"\.\w+$", ".csv", file_name)
+    file_name = re.sub(r"\.\w+$", "", file_name)
+    file_name += ".csv"
     df = pipeline(file_path)
     df = df.reset_index(drop=True)
     cols = df.columns.tolist()
-    cols.extend(["Topic", "GPT Sentiment", "FinBERT Sentiment"])
+    cols.extend(["Topic", "GPT Sentiment", "FinRoberta Sentiment"])
 
     if not os.path.exists('./data/classified-data'):
         os.makedirs('./data/classified-data')
-    output_file_path = os.path.join(r".\data\classified-data", file_name)
-    _touch_file(output_file_path, cols=cols)
+    output_file_path = os.path.join(r"./data/classified-data", file_name)
+    _touch_file(output_file_path, cols=cols, errors=errors)
 
     chunk_size = 20
     total_tokens = 0
-    for chunk, tokens in _process_chunks(df, chunk_size):
+    for chunk, tokens in _classify_chunks(df, chunk_size):
         chunk.to_csv(output_file_path, mode='a', header=False, index=False)
         total_tokens += tokens
     return total_tokens
 
 
-def _touch_file(file_path, cols):
+def _touch_file(file_path, cols, errors='raise'):
     """Create a new file with the given columns"""
-    str_cols = ",".join(cols)
-    with open(file_path, 'w', newline='') as f:
-        f.write(f"{str_cols}\n")
+    if os.path.exists(file_path):
+        if errors == 'ignore':
+            return
+        else:
+            raise FileExistsError(f"File {file_path} already exists.")
+    else:
+        str_cols = ",".join(cols)
+        with open(file_path, 'w', newline='') as f:
+            f.write(f"{str_cols}\n")
 
 
-def _process_chunks(df, chunk_size):
+def _classify_chunks(df, chunk_size):
     chunks = _split_df(df, chunk_size)
-    model, tokenizer = _launch_finbert()
-    with ProcessPoolExecutor(max_workers=min(cpu_count(), 6)) as executor:
+    model, tokenizer = _launch_transformer()
+    with ProcessPoolExecutor(max_workers=max(cpu_count() - 1, 1)) as executor:
         futures = {executor.submit(_process_chunk, chunk, model, tokenizer) for chunk in chunks}
         for future in as_completed(futures):
             yield future.result()
@@ -88,12 +113,14 @@ def _split_df(df, chunk_size):
     return np.array_split(df, len(df) // chunk_size + 1)
 
 
-def _launch_finbert():
+def _launch_transformer():
     model = AutoModelForSequenceClassification.from_pretrained(
-        "yiyanghkust/finbert-tone", num_labels=3
+        "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis"
     ).to(device)
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained("yiyanghkust/finbert-tone")
+    tokenizer = AutoTokenizer.from_pretrained(
+        "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis"
+    )
     return model, tokenizer
 
 
@@ -102,12 +129,12 @@ def _process_chunk(chunk, model, tokenizer):
     headlines = chunk['Headlines'].tolist()
     gpt_output, tokens = _classify_headlines_gpt(headlines)
     topic, gpt_sentiment = _parse_gpt_output(gpt_output)
-    finbert_sentiment = _classify_headlines_finbert(headlines, model, tokenizer)
+    transformer_sentiment = _classify_headlines_transformer(headlines, model, tokenizer)
     try:
         df = pd.DataFrame({
             'Topic': topic,
             'GPT Sentiment': gpt_sentiment,
-            'FinBERT Sentiment': finbert_sentiment}
+            'FinRoberta Sentiment': transformer_sentiment}
         )
         df = pd.concat([chunk, df], axis=1, ignore_index=True)
     except Exception as e:
@@ -116,12 +143,12 @@ def _process_chunk(chunk, model, tokenizer):
     return df, tokens
 
 
-def _classify_headlines_finbert(headlines, model, tokenizer):
-    """Classify headlines using FinBERT function
+def _classify_headlines_transformer(headlines, model, tokenizer):
+    """Classify headlines using a existing Huggingface Transformer
 
-    This function uses the FinBERT model to classify the sentiment labels of news
+    This function uses the Transformer model to classify the sentiment labels of news
     headlines. The function tokenizes the input headlines using a provided tokenizer,
-    pads and truncates the sequences, and passes them through the FinBERT model to
+    pads and truncates the sequences, and passes them through the Transformer model to
     generate sentiment predictions.
 
     Parameters
@@ -129,9 +156,9 @@ def _classify_headlines_finbert(headlines, model, tokenizer):
     headlines : list
         A list of strings containing the news headlines to be classified.
     model : transformers.BertForSequenceClassification
-        A pre-trained FinBERT model for sequence classification.
+        A pre-trained Transformer model for sequence sentiment classification.
     tokenizer : transformers.BertTokenizer
-        A pre-trained tokenizer for the FinBERT model.
+        A pre-trained tokenizer for the Transformer model.
 
     Returns
     -------
@@ -143,10 +170,9 @@ def _classify_headlines_finbert(headlines, model, tokenizer):
                           padding="max_length", truncation=True, return_tensors="pt")
     headlines = headlines.to(device=device)
     output = model(**headlines)
-
     probs = torch.nn.functional.softmax(output.logits, dim=1)
     preds = probs.argmax(dim=1).to('cpu').numpy()
-    preds = pd.Series(preds).map({0: "Neutral", 1: "Positive", 2: "Negative"})
+    preds = pd.Series(preds).map(model.config.id2label)
     return preds
 
 
@@ -173,7 +199,9 @@ def _classify_headlines_gpt(headlines):
 """
     user_prompt = "Classify the following headlines:"
     for idx, headline in enumerate(headlines):
-        user_prompt += f"\n{idx + 1}. {headline}"
+        if not headline.startswith('"'):
+            headline = f'"{headline}"'
+        user_prompt += f'\n{idx + 1}. {headline}'
 
     prompt = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -218,18 +246,20 @@ def _parse_gpt_output(text):
         sentiment = ["Neutral"] * len(headlines)
 
     for idx, c in enumerate(topics):
-        if 'Economy' in c:
+        if 'Economy' in c or 'Compan' in c or 'Finance' in c or 'Real Estate' in c:
             topics[idx] = 'Economics'
-        if c not in {'Economics', 'Other'}:
+        elif c == 'Neither':
+            topics[idx] = 'Other'
+        elif c not in {'Economics', 'Other'}:
             print(f'Topic: {c}')
             topics[idx] = 'Other'
 
     for idx, s in enumerate(sentiment):
-        if s == "Bullish":
+        if s == "Bullish" or 'Positive' in s:
             sentiment[idx] = "Positive"
-        elif s == "Bearish":
+        elif s == "Bearish" or 'Negative' in s:
             sentiment[idx] = "Negative"
-        elif s == "Neither":
+        elif s in ("Neither", "Mixed", "Other") or 'Neutral' in s:
             sentiment[idx] = "Neutral"
         elif s not in ["Positive", "Negative", "Neutral"]:
             print(f'Sentiment: {s}')
@@ -245,7 +275,9 @@ if __name__ == '__main__':
         total_tokens += process_data_pipeline(
             pipeline['pipeline'],
             pipeline['file_path'],
-            pipeline['cols']
+            errors='raise'
         )
         print(f"{name} done!")
     print(f"Total tokens: {total_tokens}")
+    # $0.002 per 1000 token as of 2023-05-09
+    print(f'Price: $ {total_tokens / 1000 * 0.002:.2f}')

@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 from textattack.augmentation import WordNetAugmenter, EmbeddingAugmenter, EasyDataAugmenter
 
-TOPICS = ['Economy', 'Stock Market', 'Company', 'Economics']
 MANUAL_TOPICS = ['BUSINESS', 'MONEY', 'TECH', 'TECHNOLOGY', 'ECONOMY', 'ECONOMICS']
 
 
@@ -20,7 +19,7 @@ def fix_sentiment_train_data():
         df = _filter_topic(df)
         if 'Manual Sentiment' in df.columns:
             df['Sentiment'] = df[['Manual Sentiment', 'GPT Sentiment',
-                                  'FinBERT Sentiment']].mode(axis=1)[0]
+                                  'FinRoberta Sentiment']].mode(axis=1)[0]
         else:
             df.rename(columns={'GPT Sentiment': 'Sentiment'}, inplace=True)
         df = df[['Headlines', 'Sentiment']]
@@ -28,11 +27,12 @@ def fix_sentiment_train_data():
 
     df = pd.concat(dfs, ignore_index=True)
     df['Headlines'] = _clean_text(df['Headlines'])
+    df = df[df['Headlines'].str.len() > 0].dropna()  # drop empty headlines
     df = df.drop_duplicates(subset='Headlines')
     df = df.sample(frac=1)
 
     train, cv = _train_test_split(df, train_size=0.95)
-    train = _augment_headlines(train, num_samples=len(train) * 0.2,
+    train = _augment_headlines(train, num_samples=len(train) * 0.33,
                                label_column='Sentiment')
 
     train.to_csv('data/fixed-data/sentiment-train.csv', index=False)
@@ -41,9 +41,8 @@ def fix_sentiment_train_data():
 
 def fix_sentiment_test_data():
     df = pd.read_csv('data/classified-data/aspect_based_analysis.csv')
-
-    df = df[df['Topic'].isin(['Economy', 'Stock Market', 'Company', 'Economics'])]
-    df['Sentiment'] = df[['Manual Sentiment', 'GPT Sentiment', 'FinBERT Sentiment']].mode(axis=1)[0]
+    df = df[df['Topic'] == 'Economics']
+    df['Sentiment'] = df[['Manual Sentiment', 'GPT Sentiment', 'FinRoberta Sentiment']].mode(axis=1)[0]
     df = df[['Headlines', 'Sentiment']]
     df['Headlines'] = _clean_text(df['Headlines'])
     df = df.sample(frac=1)
@@ -60,22 +59,20 @@ def fix_topic_data():
         df['Manual Topic'] = df['Manual Topic'].str.upper()
         if "Manual Topic" not in df.columns:
             df["Manual Topic"] = "BUSINESS"
-        mask = (
-            df['Topic'].isin(TOPICS) &
-            df['Manual Topic'].isin(MANUAL_TOPICS)
-        )
+        mask = (df['Topic'] == 'Economics') & df['Manual Topic'].isin(MANUAL_TOPICS)
         df['Topic'] = np.where(mask, 'Economics', 'Other')
         df = df[['Headlines', 'Topic']]
         dfs.append(df)
 
     df = pd.concat(dfs, ignore_index=True)
     df['Headlines'] = _clean_text(df['Headlines'])
+    df = df[df['Headlines'].str.len() > 0].dropna()  # drop empty headlines
     df = df.drop_duplicates(subset='Headlines')
     df = df.sample(frac=1)
 
-    train, test = _train_test_split(df, train_size=0.975)
-    train, cv = _train_test_split(train, train_size=0.975)
-    train = _augment_headlines(train, num_samples=len(train) * 0.2,
+    train, test = _train_test_split(df, train_size=0.95)
+    train, cv = _train_test_split(train, train_size=0.95)
+    train = _augment_headlines(train, num_samples=len(train) * 0.33,
                                label_column='Topic')
 
     train.to_csv('data/fixed-data/topic-train.csv', index=False)
@@ -83,7 +80,7 @@ def fix_topic_data():
     test.to_csv('data/fixed-data/topic-test.csv', index=False)
 
 
-def _train_test_split(df, train_size=0.975):
+def _train_test_split(df, train_size=0.95):
     df = df.sample(frac=1)
     train, test = np.split(df, [int(train_size * len(df))])
     return train, test
@@ -93,12 +90,9 @@ def _filter_topic(df):
     """Filter out non-economics topics."""
     if 'Manual Topic' in df.columns:
         df['Manual Topic'] = df['Manual Topic'].str.upper()
-        mask = (
-            df['Topic'].isin(TOPICS) &
-            df['Manual Topic'].isin(MANUAL_TOPICS)
-        )
+        mask = (df['Topic'] == 'Economics') & df['Manual Topic'].isin(MANUAL_TOPICS)
     else:
-        mask = df['Topic'].isin(TOPICS)
+        mask = df['Topic'] == 'Economics'
     df = df[mask]
     return df
 
@@ -125,7 +119,6 @@ def _clean_text(headlines: pd.Series):
     -------
     cleaned_headlines : pandas.Series
         A pandas Series containing the cleaned text headlines.
-
     """
     headlines = headlines.astype(str)
     headlines = headlines.str.lower()
@@ -160,38 +153,38 @@ def _augment_headlines(df, num_samples, label_column):
         The DataFrame has two columns: 'Headlines', which contains the original and augmented
         headlines, and label_column, which contains the corresponding labels.
     """
-    num_samples = int(num_samples)
-    methods = [WordNetAugmenter(), EmbeddingAugmenter(), EasyDataAugmenter()]
-
-    tasks = []
-    for _ in range(num_samples):
-        index = random.randint(0, len(df) - 1)
-        headline = df['Headlines'].iloc[index]
-        label = df[label_column].iloc[index]
-        tasks.append((headline, label, methods))
-
-    with Pool(cpu_count() // 2) as pool:
+    tasks = _create_augmentation_tasks(df, num_samples, label_column)
+    with Pool(max(cpu_count() - 1, 1)) as pool:
         results = pool.map(_augment_headline, tasks)
 
-    augmented_sentences = []
-    augmented_labels = []
-    for result in results:
-        if result is not None:
-            augmented_sentences.append(result[0])
-            augmented_labels.append(result[1])
+    augmented_sentences = [result[0] for result in results if result is not None]
+    augmented_labels = [result[1] for result in results if result is not None]
 
     new_df = pd.DataFrame({'Headlines': augmented_sentences, label_column: augmented_labels})
     df = pd.concat([df, new_df], ignore_index=True)
     df = df.sample(frac=1)
     df = df.drop_duplicates(subset='Headlines')
-    return df
+    return df.dropna()
+
+
+def _create_augmentation_tasks(df, num_samples, label_column):
+    methods = [WordNetAugmenter(), EmbeddingAugmenter(), EasyDataAugmenter()]
+    tasks = []
+    for _ in range(int(num_samples)):
+        index = random.randint(0, len(df) - 1)
+        headline = df['Headlines'].iloc[index]
+        label = df[label_column].iloc[index]
+
+        # randomly select an augmentation method
+        method_id = random.randint(0, len(methods) - 1)
+        augmenter = methods[method_id]
+
+        tasks.append((headline, label, augmenter))
+    return tasks
 
 
 def _augment_headline(args):
-    original_sentence, label, methods = args
-    # randomly select an augmentation method
-    method_id = random.randint(0, len(methods) - 1)
-    augmenter = methods[method_id]
+    original_sentence, label, augmenter = args
     try:
         augmented_sentence = augmenter.augment(original_sentence)
         return (augmented_sentence[0], label)
