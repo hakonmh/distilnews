@@ -21,7 +21,8 @@ def fix_sentiment_train_data():
             df['Sentiment'] = df[['Manual Sentiment', 'GPT Sentiment',
                                   'FinRoberta Sentiment']].mode(axis=1)[0]
         else:
-            df.rename(columns={'GPT Sentiment': 'Sentiment'}, inplace=True)
+            df = df[df['GPT Sentiment'] == df['FinRoberta Sentiment']]
+            df['Sentiment'] = df['GPT Sentiment']
         df = df[['Headlines', 'Sentiment']]
         dfs.append(df)
 

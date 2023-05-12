@@ -20,6 +20,7 @@ class SentimentDataset(Dataset):
 
     def __init__(self, file_path):
         data = pd.read_csv(file_path)
+        data['Headlines'] = data['Headlines'].astype(str)
         x = data['Headlines'].values
         y = data['Sentiment'].map(SENTIMENT_TO_ID).values
         self.x = x
@@ -36,6 +37,7 @@ class TopicDataset(Dataset):
 
     def __init__(self, file_path):
         data = pd.read_csv(file_path)
+        data['Headlines'] = data['Headlines'].astype(str)
         x = data['Headlines'].values
         y = data['Topic'].map(TOPIC_TO_ID).values
         self.x = x
@@ -49,7 +51,6 @@ class TopicDataset(Dataset):
 
 
 def save_model(model, path):
-    path = os.path.basename(path)
     buffer = io.BytesIO()
     torch.save(model.state_dict(), buffer)
     with open(path, 'wb') as f:
