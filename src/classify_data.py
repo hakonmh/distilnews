@@ -3,8 +3,6 @@ Classifies the different datasets used using GPT-3.5 and a huggingface transform
 """
 import re
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import cpu_count
 
 import pandas as pd
 import numpy as np
@@ -72,7 +70,8 @@ def process_data_pipeline(pipeline, file_path, errors='raise'):
     df = pipeline(file_path)
     df = df.reset_index(drop=True)
     cols = df.columns.tolist()
-    cols.extend(["Topic", "GPT Sentiment", "FinRoberta Sentiment"])
+    cols.extend(["GPT Topic", "CardiffNLP Topic", "Topic_04 Topic",
+                 "GPT Sentiment", "FinRoberta Sentiment"])
 
     if not os.path.exists('./data/classified-data'):
         os.makedirs('./data/classified-data')
@@ -82,7 +81,10 @@ def process_data_pipeline(pipeline, file_path, errors='raise'):
     chunk_size = 20
     total_tokens = 0
     for chunk, tokens in _classify_chunks(df, chunk_size):
-        chunk.to_csv(output_file_path, mode='a', header=False, index=False)
+        try:
+            chunk.to_csv(output_file_path, mode='a', header=False, index=False)
+        except Exception as e:
+            print(e)
         total_tokens += tokens
     return total_tokens
 
@@ -102,18 +104,17 @@ def _touch_file(file_path, cols, errors='raise'):
 
 def _classify_chunks(df, chunk_size):
     chunks = _split_df(df, chunk_size)
-    model, tokenizer = _launch_transformer()
-    with ProcessPoolExecutor(max_workers=max(cpu_count() - 1, 1)) as executor:
-        futures = {executor.submit(_process_chunk, chunk, model, tokenizer) for chunk in chunks}
-        for future in as_completed(futures):
-            yield future.result()
+    sentiment_transformer = _launch_sentiment_transformer()
+    topic_transformers = _launch_topic_transformers()
+    for chunk in chunks:
+        yield _process_chunk(chunk, sentiment_transformer, topic_transformers)
 
 
 def _split_df(df, chunk_size):
     return np.array_split(df, len(df) // chunk_size + 1)
 
 
-def _launch_transformer():
+def _launch_sentiment_transformer():
     model = AutoModelForSequenceClassification.from_pretrained(
         "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis"
     ).to(device)
@@ -124,55 +125,91 @@ def _launch_transformer():
     return model, tokenizer
 
 
-def _process_chunk(chunk, model, tokenizer):
+def _launch_topic_transformers():
+    cardiff_model = AutoModelForSequenceClassification.from_pretrained(
+        "cardiffnlp/tweet-topic-21-multi").to(device)
+    cardiff_model.eval()
+    cardiff_tokenizer = AutoTokenizer.from_pretrained(
+        "cardiffnlp/tweet-topic-21-multi")
+
+    topic_04_model = AutoModelForSequenceClassification.from_pretrained(
+        "jonaskoenig/topic_classification_04", from_tf=True).to(device)
+    topic_04_model.eval()
+    topic_04_tokenizer = AutoTokenizer.from_pretrained(
+        "jonaskoenig/topic_classification_04")
+    return (cardiff_model, cardiff_tokenizer), (topic_04_model, topic_04_tokenizer)
+
+
+def _process_chunk(chunk, sentiment_pipeline, topic_pipeline):
     chunk = chunk.reset_index(drop=True)
     headlines = chunk['Headlines'].tolist()
+
     gpt_output, tokens = _classify_headlines_gpt(headlines)
-    topic, gpt_sentiment = _parse_gpt_output(gpt_output)
-    transformer_sentiment = _classify_headlines_transformer(headlines, model, tokenizer)
+    gpt_df = _parse_gpt_output(gpt_output)
+    transformer_df = _classify_headlines_transformers(headlines, sentiment_pipeline, topic_pipeline)
+
     try:
         df = pd.DataFrame({
-            'Topic': topic,
-            'GPT Sentiment': gpt_sentiment,
-            'FinRoberta Sentiment': transformer_sentiment}
-        )
-        df = pd.concat([chunk, df], axis=1, ignore_index=True)
+            'GPT Topic': gpt_df['GPT Topic'],
+            'CardiffNLP Topic': transformer_df['CardiffNLP Topic'],
+            'Topic_04 Topic': transformer_df['Topic_04 Topic'],
+            'GPT Sentiment': gpt_df['GPT Sentiment'],
+            'FinRoberta Sentiment': transformer_df['FinRoberta Sentiment'],
+        })
+        df = pd.concat([chunk, df], axis=1)
     except Exception as e:
         print(repr(e))
         df = None
     return df, tokens
 
 
-def _classify_headlines_transformer(headlines, model, tokenizer):
-    """Classify headlines using a existing Huggingface Transformer
+def _classify_headlines_transformers(headlines, sentiment_pipeline, topic_pipelines):
+    """Classify headlines using existing Huggingface Transformers
 
-    This function uses the Transformer model to classify the sentiment labels of news
+    This function uses HuggingFace models to classify the sentiment and topic of news
     headlines. The function tokenizes the input headlines using a provided tokenizer,
     pads and truncates the sequences, and passes them through the Transformer model to
     generate sentiment predictions.
-
-    Parameters
-    ----------
-    headlines : list
-        A list of strings containing the news headlines to be classified.
-    model : transformers.BertForSequenceClassification
-        A pre-trained Transformer model for sequence sentiment classification.
-    tokenizer : transformers.BertTokenizer
-        A pre-trained tokenizer for the Transformer model.
-
-    Returns
-    -------
-    preds : pandas.Series
-        A pandas Series containing the predicted sentiment labels for the input
-        headlines.
     """
+    cardiff_pipeline, topic_04_pipeline = topic_pipelines
+    CARDIFF_LABEL = 'business_&_entrepreneurs'
+    TOPIC_04_LABEL = 'Business & Finance'
+
+    cardiff_topic = __classify_topic_transformer(headlines, *cardiff_pipeline, CARDIFF_LABEL)
+    topic_04_topic = __classify_topic_transformer(headlines, *topic_04_pipeline, TOPIC_04_LABEL)
+    finroberta_sentiment = __classify_sentiment_transformer(headlines, *sentiment_pipeline)
+
+    df = pd.DataFrame({
+        'CardiffNLP Topic': cardiff_topic,
+        'Topic_04 Topic': topic_04_topic,
+        'FinRoberta Sentiment': finroberta_sentiment,
+    })
+    return df
+
+
+def __classify_sentiment_transformer(headlines, model, tokenizer):
     headlines = tokenizer(headlines, add_special_tokens=True, max_length=30,
                           padding="max_length", truncation=True, return_tensors="pt")
     headlines = headlines.to(device=device)
     output = model(**headlines)
     probs = torch.nn.functional.softmax(output.logits, dim=1)
-    preds = probs.argmax(dim=1).to('cpu').numpy()
-    preds = pd.Series(preds).map(model.config.id2label)
+    preds = probs.argmax(dim=1)
+    preds = pd.Series(preds.to('cpu').numpy()).map(model.config.id2label)
+    preds = preds.str.capitalize()
+    return preds
+
+
+def __classify_topic_transformer(headlines, model, tokenizer, econ_label):
+    headlines = tokenizer(headlines, add_special_tokens=True, max_length=30,
+                          padding="max_length", truncation=True, return_tensors="pt")
+    headlines = headlines.to(device=device)
+    output = model(**headlines)
+    probs = torch.sigmoid(output.logits)
+    ECON_INDEX = model.config.label2id[econ_label]
+    preds = (probs[:, ECON_INDEX] > 0.8)
+
+    MAPPING = {True: 'Economics', False: 'Other'}
+    preds = pd.Series(preds.to('cpu').numpy()).map(MAPPING)
     return preds
 
 
@@ -265,10 +302,12 @@ def _parse_gpt_output(text):
             print(f'Sentiment: {s}')
             sentiment[idx] = "Neutral"
 
-    return topics, sentiment
+    df = pd.DataFrame({'GPT Topic': topics, 'GPT Sentiment': sentiment})
+    return df
 
 
 if __name__ == '__main__':
+    # WARNING: This script will take a very long time to run (~1 day on my system)
     total_tokens = 0
     pipelines = {**topic_pipelines, **sentiment_pipelines}
     for name, pipeline in pipelines.items():

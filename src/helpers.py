@@ -2,7 +2,6 @@
 Misc helper functions for training, storing and evaluating models.
 """
 import io
-import os
 
 import pandas as pd
 import torch

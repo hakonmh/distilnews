@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import re
 import csv
+import numpy as np
 
 
 def ag_news_classification_pipeline(file_path):
@@ -87,7 +88,7 @@ def title_and_headline_sentiment_pipeline(file_path):
     df.loc[:, 'Headlines'] = _clean_headlines(df['Headlines'])
     # Drop titles that ends with "..."
     df = df[~df['Headlines'].str.endswith('...')]
-    df.loc[:, 'Manual Topic'] = df['Manual Topic'].apply(lambda x: 'Economics' if x == 'economy' else 'Other')
+    df.loc[:, 'Manual Topic'] = np.where(df['Manual Topic'] == 'economy', 'Economics', 'Other')
     return df.dropna()
 
 
@@ -105,7 +106,9 @@ def twitter_financial_news_pipeline(file_path):
 
 
 def aspect_pipeline(file_path):
-    """For: https://www.kaggle.com/datasets/ankurzing/aspect-based-sentiment-analysis-for-financial-news"""
+    """
+    For: https://www.kaggle.com/datasets/ankurzing/aspect-based-sentiment-analysis-for-financial-news
+    """
     df = pd.read_csv(file_path)
     df = df[['Title', 'Decisions']]
     df.columns = ['Headlines', 'Manual Sentiment']
@@ -154,12 +157,15 @@ def kaggle_financial_sentiment_pipeline(file_path):
 
 
 def raw_partner_pipeline(file_path):
-    """For: https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests"""
+    """
+    For: https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests
+    """
     df = pd.read_csv(file_path)
     df = df['headline'].to_frame()
     df.columns = ['Headlines']
     df['Headlines'] = _clean_headlines(df['Headlines'])
-    df = df.sample(n=300000, random_state=42)
+    df = df.drop_duplicates()
+    df = df.sample(n=300000, random_state=42, replace=False)
     return df.dropna()
 
 
@@ -196,12 +202,13 @@ def _clean_headlines(headlines: pd.Series):
     quotes.
     """
     headlines = headlines.copy()
-    headlines = headlines.str.replace(r"\s+", " ", regex=True)
-    headlines = headlines.str.strip()
     # Removes emojis
     headlines = headlines.str.encode('ascii', 'ignore').str.decode('ascii')
     # Remove spaces before punctuation
-    headlines = headlines.str.replace(r"\s([?.!,'/])", r"\1", regex=True)
+    headlines = headlines.str.replace(r"\s([?.!,:;])", r"\1", regex=True)
+    # Remove duplicate spaces
+    headlines = headlines.str.replace(r"\s+", " ", regex=True)
+    headlines = headlines.str.strip()
     return headlines
 
 
