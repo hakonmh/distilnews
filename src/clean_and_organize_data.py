@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from textattack.augmentation import WordNetAugmenter, EmbeddingAugmenter, EasyDataAugmenter
 
+MANUAL_TOPICS = ['BUSINESS', 'MONEY', 'TECH', 'TECHNOLOGY', 'ECONOMY', 'ECONOMICS']
+
 
 def fix_sentiment_train_data():
     sentiment_files = os.listdir('data/classified-data')
@@ -54,11 +56,17 @@ def fix_sentiment_test_data():
 def fix_topic_data():
     topic_files = ['ag-news-classification-dataset.csv', 'headlines-5000.csv',
                    'labelled_newscatcher_dataset.csv', 'News_Category_Dataset_v3.csv',
+                   'ReutersNews106521.csv', 'reuters_headlines.csv', 'guardian_headlines.csv',
                    'title_and_headline_sentiment_prediction.csv', 'twitter-financial-news.csv']
     dfs = []
     for f in topic_files:
         df = pd.read_csv('data/classified-data/' + f)
+        df = _fix_manual_topic(df)
+
         df['Topic'] = df[['GPT Topic', 'CardiffNLP Topic', 'Topic_04 Topic']].mode(axis=1)[0]
+        is_economics = (df['Topic'] == 'Economics') & (df['Manual Topic'] == 'Economics')
+        df['Topic'] = np.where(is_economics, 'Economics', 'Other')
+
         df = df[['Headlines', 'Topic']]
         dfs.append(df)
 
@@ -88,8 +96,21 @@ def _train_test_split(df, train_size=0.95):
 def _filter_topic(df):
     """Filter out non-economics topics."""
     topic = df[['GPT Topic', 'CardiffNLP Topic', 'Topic_04 Topic']].mode(axis=1)[0]
-    mask = topic == 'Economics'
+    if 'Manual Topic' in df.columns:
+        df['Manual Topic'] = df['Manual Topic'].str.upper()
+        mask = (topic == 'Economics') & df['Manual Topic'].isin(MANUAL_TOPICS)
+    else:
+        mask = topic == 'Economics'
     df = df[mask]
+    return df
+
+
+def _fix_manual_topic(df):
+    """Fix manual topic column ."""
+    if "Manual Topic" not in df.columns:
+        df["Manual Topic"] = "BUSINESS"
+    df['Manual Topic'] = df['Manual Topic'].str.upper()
+    df['Manual Topic'] = np.where(df['Manual Topic'].isin(MANUAL_TOPICS), 'Economics', 'Other')
     return df
 
 
