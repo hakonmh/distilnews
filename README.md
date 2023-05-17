@@ -1,25 +1,34 @@
-# FinALBERT
+# DistilNews
 
-FinALBERT is a powerful tool that combines a topic classifier and a sentiment classifier based on news headlines. This repository provides all the necessary resources for you to get started.
+DistilNews is the combination of a topic classifier ([`topic-xdistil-uncased`](HUGGINGFACE_PLACEHOLDER)) and a sentiment classifier ([`sentiment-xdistil-uncased`](HUGGINGFACE_PLACEHOLDER)) for news headlines, tweets, analyst reports, etc.
 
-## Data Sources
+## Introduction
 
-FinALBERT uses a diverse range of data sources for its training datasets, including some of the most popular datasets available on Kaggle and GitHub, such as [the FinancialPhraseBank dataset](https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news), and [the massive stock news analysis database](https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests). The number of headlines is about 300k for the sentiment model and 400k for the topic classification model.
+This repository shows the code used for creating the dataset, and for training and evaluating the models. And contains a Pytorch state dicts for manually downloading the models. The models will also be made available on [HuggingFace](https://huggingface.co), and can be used directly from there. The code is available for those who want to train their own models, or create their own dataset using the labelling pipeline used here.
 
-The full list of data sources:
+## Models
 
-### Sentiment
+Both models are based on [xtremedistil-l12-h384-uncased](https://huggingface.co/microsoft/xtremedistil-l12-h384-uncased), which has 33 million parameters. It achieved comparable performance to other, larger models, while having a much smaller size.
 
-- <https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news>
-- <https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests>
-- <https://www.kaggle.com/datasets/notlucasp/financial-news-headlines>
-- <https://huggingface.co/datasets/chiapudding/kaggle-financial-sentiment>
-- <https://www.kaggle.com/datasets/johoetter/labeled-stock-news-headlines>
-- <https://www.kaggle.com/datasets/ankurzing/aspect-based-sentiment-analysis-for-financial-news>
-- <https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-in-commodity-market-gold>
-- <https://github.com/duynht/financial-news-dataset>
+The models were trained for 3 epochs, with a batch size of 50, and a learning rate of 5e-5. The models were trained on a single NVIDIA RTX 3050 GPU, and took each about 2-3 hours to train.
 
-### Topic Classification
+### Performance
+
+Here are the performance metrics for the models on the validation set.
+
+| Model | Accuracy | F1 Score |
+| --- | --- | --- |
+| `topic-xdistil-uncased`| 94.19 % | 92.27 % |
+| `sentiment-xdistil-uncased` | 95.18 % | 93.99 % |
+
+## Data
+
+DistilNews uses a diverse range of data sources for its training datasets, including some of the most popular datasets available on Kaggle and GitHub, such as [the FinancialPhraseBank dataset](https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news), and [the massive stock news analysis database](https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests). The number of rows is about 300k for the sentiment model and 500k for the topic classification model.
+
+The full list of data sources (with some data overlap between the two models):
+
+<details>
+  <summary>Topic data sources</summary>
 
 - <https://www.kaggle.com/datasets/kotartemiy/topic-labeled-news-dataset>
 - <https://www.kaggle.com/datasets/rmisra/news-category-dataset>
@@ -28,66 +37,83 @@ The full list of data sources:
 - <https://www.kaggle.com/datasets/adarshsng/title-and-headline-sentiment-prediction>
 - <https://www.kaggle.com/datasets/sulphatet/twitter-financial-news>
 
-## Classification
+</details>
 
-The sentiment data is pre-classified by taking the subset of headlines classified with the same sentiment by [GPT 3.5](https://platform.openai.com/docs/models/gpt-3-5), [FinBERT Tone](https://huggingface.co/yiyanghkust/finbert-tone), and human classifiers (for those datasets which are pre-classified).
+<details>
+    <summary>Sentiment data sources</summary>
 
-The topic data is pre-classified by [GPT 3.5](https://platform.openai.com/docs/models/gpt-3-5).
+- <https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news>
+- <https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests>
+- <https://www.kaggle.com/datasets/notlucasp/financial-news-headlines>
+- <https://huggingface.co/datasets/chiapudding/kaggle-financial-sentiment>
+- <https://www.kaggle.com/datasets/johoetter/labeled-stock-news-headlines>
+- <https://www.kaggle.com/datasets/ankurzing/aspect-based-sentiment-analysis-for-financial-news>
+- <https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-in-commodity-market-gold>
 
-## Models
+</details>
 
-Both models are based on [albert-xxlarge v2](https://huggingface.co/albert-xxlarge-v2).
+### Labelling
+
+The main idea here was to label the data using the OpenAI's Chat GPT API. GPT-4 was considered, but it was found to expensive for this project, so GPT 3.5 was used instead. Unfortunately, the performance of GPT-3.5 alone fell short of expectations, leading us to augment it with additional classifiers to enhance the quality of data labeling
+
+- The sentiment data labeled by taking the subset of headlines classified with the same sentiment by [GPT 3.5](https://platform.openai.com/docs/models/gpt-3-5) and [distilRoberta-financial-sentiment](https://huggingface.co/mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis).
+  - Where Human labels is available, it is used instead.
+- The topic data is labeled by using [GPT 3.5](https://platform.openai.com/docs/models/gpt-3-5), [tweet-topic-21-multi](https://huggingface.co/cardiffnlp/tweet-topic-21-multi) and [topic_classification_04](https://huggingface.co/jonaskoenig/topic_classification_04).
+
+*The final labelled dataset is available on request at <haakonholmen@hotmail.com>*
 
 ## Usage
 
-Predict sentence:
+The easiest method is to use the models directly from [HuggingFace](https://huggingface.co):
 
 ```python
-import finalbert as fb
-import torch
+from transformers import pipeline
 
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-sentence = 'Stock market finished side-ways for the day as GDP reports are released'
-
-model = fb.load_model('sentiment', device=device)
-probs = model.predict(sentence, out='probs')
-print(probs)
-
->>> tensor([   0.56,    0.35,    0.2])
+sentiment_classifier = pipeline("sentiment-analysis", model="<SENTIMENT_MODEL_NAME>",
+                                tokenizer="<SENTIMENT_MODEL_NAME>")
+topic_classifier = pipeline("topic-analysis", model="<TOPIC_MODEL_NAME>",
+                            tokenizer="<TOPIC_MODEL_NAME>")
+sentence = "Stock market finished side-ways for the day as GDP reports are released"
+print(sentiment_classifier(sentence))
+print(topic_classifier(sentence))
 ```
 
-Sentiment prediction pipeline:
+```text
+<OUTPUT_PLACEHOLDER>
+```
+
+You can also download the model state dicts from this repository, and use them directly:
 
 ```python
-import finalbert as fnb
 import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+MODEL_NAME = "microsoft/xtremedistil-l12-h384-uncased"
+STATE_DICT_PATH = 'models/<FILE_NAME_PLACEHOLDER>'
+ID_TO_TOPIC = {0: "Other", 1: "Economics"}
+TOPIC_TO_ID = {"Other": 0, "Economics": 1}
 
-pipeline = fb.pipeline(
-    'file_path.csv', headline_col='headlines', target_col=None, device=device
+topic_model = AutoModelForSequenceClassification.from_pretrained(
+    MODEL_NAME, num_labels=3, id2label=ID_TO_TOPIC, label2id=TOPIC_TO_ID
 )
-model = fb.load_model('sentiment', device=device)
-
-model.predict(pipeline, out='label')
+topic_tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding="max_length", truncation=True)
+topic_model.load_state_dict(torch.load(STATE_DICT_PATH))
+topic_model.eval()
 ```
-
-*Note:* `target_col` should be strings with labels `positive`, `negative`, or `neutral`.
-
-Topic prediction pipeline:
 
 ```python
-import finalbert as fb
 import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+MODEL_NAME = "microsoft/xtremedistil-l12-h384-uncased"
+STATE_DICT_PATH = 'models/<FILE_NAME_PLACEHOLDER>'
+ID_TO_SENTIMENT = {0: "Negative", 1: "Neutral", 2: "Positive"}
+SENTIMENT_TO_ID = {"Negative": 0, "Neutral": 1, "Positive": 2}
 
-pipeline = fb.pipeline(
-    'file_path.csv', headline_col='headlines', target_col='topic', device=device
+sentiment_tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding="max_length", truncation=True)
+sentiment_model = AutoModelForSequenceClassification.from_pretrained(
+    MODEL_NAME, num_labels=3, id2label=ID_TO_SENTIMENT, label2id=SENTIMENT_TO_ID
 )
-model = fb.load_model('topic', device=device)
-
-model.predict(pipeline, out='label')
+sentiment_model.load_state_dict(torch.load(STATE_DICT_PATH))
+sentiment_model.eval()
 ```
-
-*Note:* `target_col` should be strings with labels `economics`, or `other`.
