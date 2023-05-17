@@ -4,10 +4,12 @@ Misc helper functions for training, storing and evaluating models.
 import io
 
 import pandas as pd
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 from transformers import PreTrainedModel
+from sklearn.linear_model import LogisticRegression
 
 ID_TO_SENTIMENT = {0: "Negative", 1: "Neutral", 2: "Positive"}
 SENTIMENT_TO_ID = {"Negative": 0, "Neutral": 1, "Positive": 2}
@@ -108,3 +110,66 @@ def _compute_accuracy(output, target):
             probs = torch.nn.functional.softmax(output, dim=1)
             accuracy = (probs.argmax(dim=1) == target.argmax(dim=1)).sum() / len(target)
     return accuracy
+
+
+class PlattScaling:
+    """Implements Platt scaling for calibrating model predictions."""
+
+    def __init__(self):
+        self.logistic_models = []
+
+    def fit(self, logits, labels):
+        """
+        Fits a logistic regression model for each class in a one-vs-rest setting.
+
+        Args:
+            logits (torch.Tensor): The logits (pre-softmax outputs) of the model for the validation dataset.
+                Shape: (num_samples, num_classes).
+            labels (torch.Tensor): The ground truth labels for the validation dataset (one-hot encoded).
+                Shape: (num_samples, num_classes).
+        """
+        num_classes = labels.shape[1]
+        for i in range(num_classes):
+            logistic_model = _fit_logistic_regression(logits, labels, i)
+            self.logistic_models.append(logistic_model)
+
+    def transform(self, logits):
+        """
+        Calibrates model predictions using Platt scaling with fitted logistic regression models.
+
+        Args:
+            logits (torch.Tensor): The logits (pre-softmax outputs) of the model
+                Shape: (num_samples, num_classes).
+
+        Returns:
+            torch.Tensor: The calibrated probabilities for each class. Shape: (num_samples, num_classes).
+        """
+        calibrated_probs = []
+        logits = logits.to('cpu').detach().numpy()
+        for i, logistic_model in enumerate(self.logistic_models):
+            calibrated_output = logistic_model.predict_proba(logits)[:, 1]
+            calibrated_probs.append(calibrated_output)
+        calibrated_probs = torch.tensor(np.array(calibrated_probs)).T
+        return calibrated_probs / torch.sum(calibrated_probs, dim=1, keepdim=True)
+
+
+def _fit_logistic_regression(logits, labels, class_idx):
+    """
+    Fits a logistic regression model for a specific class in a one-vs-rest setting.
+
+    Args:
+        logits (torch.Tensor): The logits (pre-softmax outputs) of the model for the validation dataset.
+            Shape: (num_samples, num_classes).
+        labels (torch.Tensor): The ground truth labels for the validation dataset (one-hot encoded).
+            Shape: (num_samples, num_classes).
+        class_idx (int): The index of the class for which the logistic regression model is being fit.
+
+    Returns:
+        sklearn.linear_model.LogisticRegression: A fitted logistic regression model for the specified class.
+    """
+    logits = logits.numpy()
+    labels = labels.argmax(dim=1)
+    binary_labels = (labels == class_idx).float().numpy()
+    logistic_regression = LogisticRegression(solver='lbfgs')
+    logistic_regression.fit(logits, binary_labels)
+    return logistic_regression
