@@ -1,11 +1,13 @@
+# These are the packages that are required to run all the code in this
+# repository, including the notebooks.
 pandas
 numpy
 matplotlib
 seaborn
 torch
+transformers
 tensorboard
 scikit-learn
-transformers
 openai
 tqdm
 textattack
