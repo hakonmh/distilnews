@@ -22,9 +22,9 @@ Both models are based on
 which has 33 million parameters. It achieved comparable performance to other,
 larger models, while having a much smaller size.
 
-The models were trained for 3 epochs, with a batch size of 50, and a learning
-rate of 5e-5. The models were trained on a single NVIDIA RTX 3050 GPU, and
-took each about 2-3 hours to train.
+The models were trained for *3* epochs, with a batch size of *50*, and a learning
+rate of *5e-5*. The models were trained on a single NVIDIA RTX 3050 GPU, and
+took each about 2 hours to train.
 
 ### Performance
 
@@ -115,7 +115,7 @@ print(sentiment_classifier(SENTENCE))
 [{'label': 'Positive', 'score': 0.9997037053108215}]
 ```
 
-Or, if you want to load a model directly:
+Alternatively, you can load the models directly from HuggingFace:
 
 ```python
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
