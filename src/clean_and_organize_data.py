@@ -200,4 +200,4 @@ if __name__ == '__main__':
     if not os.path.exists('data/fixed-data'):
         os.makedirs('data/fixed-data')
     fix_sentiment_data()
-    # fix_topic_data()
+    fix_topic_data()
