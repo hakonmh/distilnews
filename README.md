@@ -14,16 +14,16 @@ The models were trained for 3 epochs, with a batch size of 50, and a learning ra
 
 ### Performance
 
-Here are the performance metrics for the models on the validation set.
+Here are the performance metrics for the models on the test set:
 
-| Model | Accuracy | F1 Score |
-| --- | --- | --- |
-| `topic-xdistil-uncased`| 94.19 % | 92.27 % |
-| `sentiment-xdistil-uncased` | 95.18 % | 93.99 % |
+| Model | Test Set Size | Accuracy | F1 Score |
+| --- | --- | --- | --- |
+| `topic-xdistil-uncased` | 32 799 | 94.44 % | 92.59 % |
+| `sentiment-xdistil-uncased` | 17 527 | 94.59 % | 93.44 % |
 
 ## Data
 
-DistilNews uses a diverse range of data sources for its training datasets, including some of the most popular datasets available on Kaggle and GitHub, such as [the FinancialPhraseBank dataset](https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news), and [the massive stock news analysis database](https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests). The number of rows is about 300k for the sentiment model and 500k for the topic classification model.
+DistilNews uses a diverse range of data sources for its training datasets, including some of the most popular datasets available on Kaggle and GitHub, such as [the FinancialPhraseBank dataset](https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news), and [the massive stock news analysis database](https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests). The sentiment dataset contains over 300k entries, while the topic classification dataset has ~600k entries.
 
 The full list of data sources (with some data overlap between the two models):
 
@@ -82,7 +82,7 @@ print(topic_classifier(sentence))
 <OUTPUT_PLACEHOLDER>
 ```
 
-You can also download the model state dicts from this repository, and use them directly:
+You can also load the model by downloading the state dicts from this repository. To load the model in Python, use the following code:
 
 ```python
 import torch
@@ -99,6 +99,8 @@ topic_model = AutoModelForSequenceClassification.from_pretrained(
 topic_tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding="max_length", truncation=True)
 topic_model.load_state_dict(torch.load(STATE_DICT_PATH))
 topic_model.eval()
+
+# Prediction pipeline...
 ```
 
 ```python
@@ -116,4 +118,6 @@ sentiment_model = AutoModelForSequenceClassification.from_pretrained(
 )
 sentiment_model.load_state_dict(torch.load(STATE_DICT_PATH))
 sentiment_model.eval()
+
+# Prediction pipeline...
 ```
