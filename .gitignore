@@ -3,6 +3,7 @@ models/*
 !models/xtremedistil*
 runs/*
 !runs/xtremedistil*
+hf-repositories/*
 
 .git
 .vscode
