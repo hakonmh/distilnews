@@ -1,19 +1,23 @@
 # DistilNews
 
-DistilNews is the combination of a topic classifier
-([`topic-xdistil-uncased`](https://huggingface.co/hakonmh/topic-xdistil-uncased))
-and a sentiment classifier
-([`sentiment-xdistil-uncased`](https://huggingface.co/hakonmh/sentiment-xdistil-uncased))
-for news headlines, tweets, analyst reports, etc.
+*DistilNews* is the combination of two transformer models for classifying news headlines,
+tweets, analyst reports, etc:
+
+1. [`topic-xdistil-uncased`](https://huggingface.co/hakonmh/topic-xdistil-uncased)
+for classifying the topic of the headlines.
+    - The possible topics are **Economic** or **Other**.
+2. [`sentiment-xdistil-uncased`](https://huggingface.co/hakonmh/sentiment-xdistil-uncased)
+for classifying the sentiment of the headlines.
+    - The possible sentiments are **Positive**, **Neutral**, or **Negative**.
 
 ## Introduction
 
 This repository shows the code used for creating the dataset, and for training
 and evaluating the models. And contains a Pytorch state dicts for manually
-downloading the models. The models will also be made available on
+downloading the models. The models are made available on
 [HuggingFace](https://huggingface.co), and can be used directly from there.
 The code is available for those who want to train their own models, or create
-their own dataset using the labelling pipeline used here.
+their own dataset using the labeling pipeline used here.
 
 ## Models
 
@@ -22,8 +26,8 @@ Both models are based on
 which has 33 million parameters. It achieved comparable performance to other,
 larger models, while having a much smaller size.
 
-The models were trained for *3* epochs, with a batch size of *50*, and a learning
-rate of *5e-5*. The models were trained on a single NVIDIA RTX 3050 GPU, and
+The models were trained for 3 epochs, with a batch size of 50, and a learning
+rate of 5e-5. The models were trained on a single NVIDIA RTX 3050 GPU, and
 took each about 2 hours to train.
 
 ### Performance
@@ -37,12 +41,12 @@ Here are the performance metrics for the models on the test set:
 
 ## Data
 
-DistilNews uses a diverse range of data sources for its training datasets,
-including some of the most popular datasets available on Kaggle and GitHub,
-such as [the FinancialPhraseBank dataset](https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news),
-and [the massive stock news analysis database](https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests).
-The sentiment dataset contains over 300k entries, while the topic
-classification dataset has ~600k entries.
+DistilNews uses a diverse range of data sources for its training datasets, including
+some of the most popular datasets available on Kaggle and GitHub, such as
+the [FinancialPhraseBank](https://www.kaggle.com/datasets/ankurzing/sentiment-analysis-for-financial-news),
+and [Daily Financial News for 6000+ Stocks](https://www.kaggle.com/datasets/miguelaenlle/massive-stock-news-analysis-db-for-nlpbacktests)
+dataset. The sentiment dataset contains over 300k entries, while the topic classification
+dataset has ~600k entries.
 
 The full list of data sources (with some data overlap between the two models):
 
@@ -71,13 +75,12 @@ The full list of data sources (with some data overlap between the two models):
 
 </details>
 
-### Labelling
+### Labeling
 
-The main idea here was to label the data using the OpenAI's Chat GPT API.
-GPT-4 was considered, but it was found to expensive for this project, so GPT
-3.5 was used instead. Unfortunately, the performance of GPT-3.5 alone fell
-short of expectations, leading us to augment it with additional classifiers
-to enhance the quality of data labeling
+The main idea here was to label the data using OpenAI's ChatGPT. GPT-4 was considered,
+but it was found to expensive to be viable, so GPT-3.5 was used instead. Unfortunately,
+the performance of GPT-3.5 alone fell short of expectations, leading us to augment it
+with additional classifiers to enhance the quality of data labeling.
 
 - The sentiment data labeled by taking the subset of headlines classified
 with the same sentiment by
@@ -89,12 +92,15 @@ and [distilRoberta-financial-sentiment](https://huggingface.co/mrm8488/distilrob
 [tweet-topic-21-multi](https://huggingface.co/cardiffnlp/tweet-topic-21-multi)
 and [topic_classification_04](https://huggingface.co/jonaskoenig/topic_classification_04).
 
-*The final labelled dataset is available on request at <haakonholmen@hotmail.com>*
+The final labeling pipeline achieved [human level performance](https://www.hakholm.com/distilnews)
+when compared against a human labeled subset of the data.
+
+*The labeled dataset is available on request at <haakonholmen@hotmail.com>*
 
 ## Usage
 
-The easiest method is to use the models directly from
-[HuggingFace](https://huggingface.co) using pipelines:
+The easiest method is to use [HuggingFace](https://huggingface.co) pipelines to load
+the models:
 
 ```python
 from transformers import pipeline
