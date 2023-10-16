@@ -8,7 +8,7 @@ torch
 transformers
 tensorboard
 scikit-learn
-openai
 tqdm
 textattack
 tenacity
+gpustat

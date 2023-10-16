@@ -10,6 +10,7 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from transformers import PreTrainedModel
 from sklearn.linear_model import LogisticRegression
+import gpustat
 
 ID_TO_SENTIMENT = {0: "Negative", 1: "Neutral", 2: "Positive"}
 SENTIMENT_TO_ID = {"Negative": 0, "Neutral": 1, "Positive": 2}
@@ -173,3 +174,20 @@ def _fit_logistic_regression(logits, labels, class_idx):
     logistic_regression = LogisticRegression(solver='lbfgs')
     logistic_regression.fit(logits, binary_labels)
     return logistic_regression
+
+
+def print_python_gpu_vram():
+    """Prints the GPU VRAM usage of all python processes on the system.
+    """
+    gpu_stats = gpustat.GPUStatCollection.new_query()
+    for gpu in gpu_stats:
+        header = f"{gpu.name}: {gpu.memory_used} MB/{gpu.memory_total} MB."
+        print('-' * len(header))
+        print(header)
+        processes = tuple(gpu.processes)
+        for process in processes:
+            name = process['command']
+            full_cmd = process['full_command']
+            if 'python' in name:
+                print(f" - Pid {process['pid']} | {full_cmd[0]} | {process['gpu_memory_usage']} MB")
+        print('-' * len(header))
