@@ -142,3 +142,5 @@ print(result)
 ```text
 Economics
 ```
+
+Tested on `transformers` 4.30.1, and `torch` 2.0.0.
